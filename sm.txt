@@ -6,3 +6,5 @@ separator-2
 separator-3
 omega-1
 omega-2
+omega-3
+omega-4
