@@ -1,0 +1,31 @@
+name: Check sm.txt
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  check-sm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Simulate slow CI
+        run: |
+          echo "Event: ${{ github.event_name }}, ref: ${{ github.ref }}"
+          echo "Sleeping 2 minutes to simulate a slow required check..."
+          sleep 120
+
+      - name: Check sm.txt is at most 10 lines
+        run: |
+          max=10
+          lines=$(wc -l < sm.txt | tr -d ' ')
+          echo "sm.txt has ${lines} lines (max allowed: ${max})"
+          if [ "${lines}" -gt "${max}" ]; then
+            echo "sm.txt exceeds ${max} lines — failing this check."
+            exit 1
+          fi
+          echo "looks good"
