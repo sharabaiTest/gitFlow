@@ -1,0 +1,26 @@
+name: Observe push
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Who pushed, and who merged
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          echo "actor=${{ github.actor }} triggering_actor=${{ github.triggering_actor }} pusher=${{ github.event.pusher.name }}"
+          echo "subject=$(jq -r '.head_commit.message' "$GITHUB_EVENT_PATH" | head -1)"
+          gh api "repos/$REPO/commits/$SHA" --jq '"parents=\([.parents[].sha] | join(","))"'
+          for n in $(gh api "repos/$REPO/commits/$SHA/pulls" --jq '.[].number'); do
+            gh pr view "$n" --repo "$REPO" --json number,state,mergedBy,mergedAt,mergeCommit --jq '"pr=\(.number) state=\(.state) mergedBy=\(.mergedBy.login) mergedAt=\(.mergedAt) mergeCommit=\(.mergeCommit.oid)"'
+          done
