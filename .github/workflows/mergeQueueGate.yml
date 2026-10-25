@@ -1,0 +1,73 @@
+name: Merge queue gate
+
+on:
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
+
+jobs:
+  # The same job ids postMerge.yml uses, so the nested check names match its post-merge run.
+  typecheck:
+    uses: ./.github/workflows/typecheck.yml
+
+  lint:
+    uses: ./.github/workflows/lint.yml
+
+  test:
+    uses: ./.github/workflows/test.yml
+
+  gate:
+    name: Merge queue gate
+    needs: [typecheck, lint, test]
+    # always(), not !cancelled(): on a cancelled run a !cancelled() job is skipped, and a skipped required check passes.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: Fail if an enforced check failed or was cancelled
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          # The newest successful run of mergeQueueSwitch.yml on main names the checks this gate does not fail on, in a
+          # title like "[test,lint] npm registry outage". Only a run started by a member of Expensify/expensify succeeds, see that file.
+          notEnforced=""
+          if ! switch=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mergeQueueSwitch.yml/runs?branch=main&event=workflow_dispatch&status=success&per_page=1" --jq '.workflow_runs[0] // empty'); then
+            echo "::warning::Could not read the merge queue switch, so every check is enforced."
+          elif [[ -n "$switch" ]]; then
+            title=$(jq -r .display_title <<< "$switch")
+            notEnforced=$(sed -E 's/^\[([^]]*)\].*$/\1/' <<< "$title" | tr -d ' ')
+          fi
+
+          if [[ -n "$notEnforced" ]]; then
+            summary="Not enforced: $notEnforced, since $(jq -r .updated_at <<< "$switch"), switched by $(jq -r .triggering_actor.login <<< "$switch"): ${title#*] } ($(jq -r .html_url <<< "$switch"))"
+            echo "::warning::$summary"
+          else
+            summary="Every check is enforced."
+          fi
+          echo "$summary" >> "$GITHUB_STEP_SUMMARY"
+
+          failed=false
+          for check in $(jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key' <<< "$NEEDS"); do
+            if [[ ",$notEnforced," == *",$check,"* ]]; then
+              echo "::warning::$check failed, and the merge queue switch does not enforce it."
+            else
+              echo "::error::$check failed or was cancelled."
+              failed=true
+            fi
+          done
+          [[ "$failed" == false ]]
+
+  # Scratch-only comparison for test 1: the same needs with !cancelled(). Not required by any ruleset.
+  gateNotCancelled:
+    name: Gate variant (not cancelled)
+    needs: [typecheck, lint, test]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS"
+          [[ -z "$(jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key' <<< "$NEEDS")" ]]

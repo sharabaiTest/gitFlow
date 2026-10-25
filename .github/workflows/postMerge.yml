@@ -1,0 +1,69 @@
+name: Post merge (preDeploy stand-in)
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  # Skipped after a queued merge: the queue already ran them on this exact commit (rollout plan Task 5 Step 7).
+  typecheck:
+    if: ${{ github.actor != 'github-merge-queue[bot]' }}
+    uses: ./.github/workflows/typecheck.yml
+
+  lint:
+    if: ${{ github.actor != 'github-merge-queue[bot]' }}
+    uses: ./.github/workflows/lint.yml
+
+  test:
+    if: ${{ github.actor != 'github-merge-queue[bot]' }}
+    uses: ./.github/workflows/test.yml
+
+  queueResult:
+    if: ${{ github.actor == 'github-merge-queue[bot]' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    env:
+      CHECKS: typecheck lint test
+    steps:
+      - name: Fail if a check failed in the merge queue run that tested this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mergeQueueGate.yml/runs?head_sha=$GITHUB_SHA&event=merge_group" --jq '.workflow_runs[0].id // empty')
+          if [[ -z "$run" ]]; then
+            echo "::error::Found no merge queue run for $GITHUB_SHA."
+            exit 1
+          fi
+          echo "Merge queue run: $run"
+          # A job of a called workflow is named "<caller job id> / <job name>".
+          failed=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs" --jq '.jobs[] | select(.conclusion == "failure") | .name | split(" / ")[0]' | sort -u)
+          status=0
+          for check in $failed; do
+            if [[ " $CHECKS " == *" $check "* ]]; then
+              echo "::error::$check failed in the merge queue run that tested this commit."
+              status=1
+            fi
+          done
+          exit $status
+
+  # Stand-in for Task 5 Step 8's commitSeatbeltBaseline and uploadCoverage.
+  pickup:
+    if: ${{ github.actor == 'github-merge-queue[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Picking up the merge group run's artifacts for $GITHUB_SHA (actor=$GITHUB_ACTOR)."
+
+  confirmPassingBuild:
+    needs: [typecheck, lint, test, queueResult]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exit failed workflow
+        if: ${{ needs.typecheck.result == 'failure' || needs.lint.result == 'failure' || needs.test.result == 'failure' || needs.queueResult.result == 'failure' }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "::error::A check failed: $(jq -c . <<< "$NEEDS")"
+          exit 1
+      - run: echo "Passing. actor=$GITHUB_ACTOR"

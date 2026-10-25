@@ -1,0 +1,16 @@
+name: Merge queue gate on pull requests
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches-ignore: [staging, production]
+
+jobs:
+  # The merge queue requires Merge queue gate, and a pull request can be queued only once it has passed there too.
+  # The checks themselves run in mergeQueueGate.yml, on merge groups only, so this job only reports the name.
+  gate:
+    name: Merge queue gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pass
+        run: echo "The checks run in the merge queue."

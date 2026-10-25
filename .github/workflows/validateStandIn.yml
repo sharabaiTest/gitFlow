@@ -1,0 +1,23 @@
+name: validate actions (stand-in)
+
+# Stand-in for the org-required validateActions.yml: on a merge group every job skips.
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  validateStandIn:
+    name: validate stand-in
+    if: ${{ github.event_name != 'merge_group' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "validated"
+
+  validateStandInTwo:
+    name: validate stand-in two
+    if: ${{ github.event_name != 'merge_group' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "validated"
