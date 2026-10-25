@@ -1,0 +1,75 @@
+name: Cache scope probe
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  R: 20261025T1837Z
+
+jobs:
+  cache-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Context
+        run: |
+          echo "event=${{ github.event_name }}"
+          echo "ref=${{ github.ref }}"
+          echo "sha=${{ github.sha }}"
+          echo "base_ref=${{ github.base_ref }} head_ref=${{ github.head_ref }}"
+          mkdir -p probe-cache
+          echo "${{ github.event_name }} ${{ github.ref }} ${{ github.run_id }}" > probe-cache/marker.txt
+
+      - name: Look up mg-R
+        id: mg
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: probe-cache
+          key: mg-${{ env.R }}
+          lookup-only: true
+
+      - name: Look up main-R
+        id: main
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: probe-cache
+          key: main-${{ env.R }}
+          lookup-only: true
+
+      - name: Report
+        run: |
+          echo "PROBE event=${{ github.event_name }} ref=${{ github.ref }} key=mg-${{ env.R }} cache-hit='${{ steps.mg.outputs.cache-hit }}' matched='${{ steps.mg.outputs.cache-matched-key }}'"
+          echo "PROBE event=${{ github.event_name }} ref=${{ github.ref }} key=main-${{ env.R }} cache-hit='${{ steps.main.outputs.cache-hit }}' matched='${{ steps.main.outputs.cache-matched-key }}'"
+
+      - name: Save mg-R-run_id
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: probe-cache
+          key: mg-${{ env.R }}-${{ github.run_id }}
+
+      - name: Save mg-R
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: probe-cache
+          key: mg-${{ env.R }}
+
+      - name: Save main-R
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: probe-cache
+          key: main-${{ env.R }}
