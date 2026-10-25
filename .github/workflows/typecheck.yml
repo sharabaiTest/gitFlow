@@ -1,0 +1,32 @@
+name: typecheck (stand-in)
+
+# A stand-in for App's typecheck.yml. It passes, fails or sleeps on a directive in the pull request title, which a merge
+# group carries in its head commit message and a merge to main in its commit message: [ci typecheck=fail] or [ci typecheck=sleep90].
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+
+# The same group expression App's checks use.
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && format('{0}-{1}', github.ref, github.sha) || github.ref }}-typecheck
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Follow the directive
+        env:
+          CHECK: typecheck
+          MSG: ${{ github.event.pull_request.title || github.event.merge_group.head_commit.message || github.event.head_commit.message }}
+        run: |
+          echo "event=$GITHUB_EVENT_NAME ref=$GITHUB_REF sha=$GITHUB_SHA run=$GITHUB_RUN_ID"
+          for tok in $(tr '[]' '  ' <<< "$MSG"); do
+            case "$tok" in
+              "$CHECK=fail") echo "::error::Directed to fail."; exit 1 ;;
+              "$CHECK=sleep"*) n=${tok#"$CHECK=sleep"}; echo "Sleeping $n s"; sleep "$n"; echo "Woke at $(date -u +%FT%TZ)" ;;
+            esac
+          done
+          echo "Pass."

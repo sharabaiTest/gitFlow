@@ -1,0 +1,81 @@
+name: Merge queue switch
+run-name: '[${{ inputs.notEnforced }}] ${{ inputs.reason }}'
+
+on:
+  workflow_dispatch:
+    inputs:
+      notEnforced:
+        description: 'Checks the merge queue gate stops failing on, comma-separated: typecheck, lint, test. Leave empty to enforce every check again.'
+        required: false
+        default: ''
+      reason:
+        description: 'Why, for example a link to the outage'
+        required: true
+
+# One run at a time, so runs finish in the order they were started and the newest successful run is the latest decision.
+concurrency:
+  group: merge-queue-switch
+
+jobs:
+  switch:
+    runs-on: ubuntu-latest
+    env:
+      # The gate's job ids.
+      CHECKS: typecheck lint test
+      NOT_ENFORCED: ${{ inputs.notEnforced }}
+    steps:
+      - name: Check that the user is a member of Expensify/expensify
+        # Scratch repository: skipped, since it needs a token that can read org team membership.
+        run: echo "Membership check skipped on the scratch repository. triggering_actor=$GITHUB_TRIGGERING_ACTOR actor=$GITHUB_ACTOR ref=$GITHUB_REF"
+
+      - name: Reject unknown checks
+        run: |
+          for check in ${NOT_ENFORCED//,/ }; do
+            if [[ " $CHECKS " != *" $check "* ]]; then
+              echo "::error::$check is not a check the merge queue gate runs. Use some of: $CHECKS."
+              exit 1
+            fi
+          done
+
+      - name: Write the Slack message
+        id: message
+        env:
+          REASON: ${{ inputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [[ -n "$NOT_ENFORCED" ]]; then
+            text=":warning: $GITHUB_TRIGGERING_ACTOR stopped the merge queue failing on $NOT_ENFORCED: $REASON. <$RUN_URL|Switch run>"
+          else
+            text=":white_check_mark: $GITHUB_TRIGGERING_ACTOR made the merge queue enforce every check again: $REASON. <$RUN_URL|Switch run>"
+          fi
+          echo "text=$(jq -n --arg text "$text" '$text')" >> "$GITHUB_OUTPUT"
+
+      - name: Announce the switch in Slack
+        # A Slack outage must not stop the switch: the run's success is the decision the gate reads.
+        continue-on-error: true
+        uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c # v3.0.3
+        with:
+          # Scratch repository: a placeholder webhook that cannot be posted to.
+          webhook: https://hooks.slack.com/services/invalid-scratch-webhook
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "channel": "#deployer",
+              "attachments": [{
+                "color": "${{ inputs.notEnforced && 'warning' || 'good' }}",
+                "text": ${{ steps.message.outputs.text }}
+              }]
+            }
+
+      - name: Announce the switch in Slack, failing on errors (scratch-only comparison)
+        continue-on-error: true
+        uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c # v3.0.3
+        with:
+          errors: true
+          retries: '0'
+          webhook: https://hooks.slack.com/services/invalid-scratch-webhook
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ${{ steps.message.outputs.text }}
+            }
