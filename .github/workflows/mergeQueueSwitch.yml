@@ -56,7 +56,7 @@ jobs:
         uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c # v3.0.3
         with:
           # Scratch repository: a placeholder webhook that cannot be posted to.
-          webhook: https://hooks.slack.com/services/invalid-scratch-webhook
+          webhook: https://hooks.slack.com/services/T0/B0/x
           webhook-type: incoming-webhook
           payload: |
             {
@@ -73,7 +73,7 @@ jobs:
         with:
           errors: true
           retries: '0'
-          webhook: https://hooks.slack.com/services/invalid-scratch-webhook
+          webhook: https://hooks.slack.com/services/T0/B0/x
           webhook-type: incoming-webhook
           payload: |
             {
